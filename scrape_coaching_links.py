@@ -38,11 +38,8 @@ def parse_date(text: str) -> str:
     return f"{year:04d}{month:02d}{day:02d}"
 
 
-def scrape(session: requests.Session) -> None:
-    response = session.get(URL, timeout=30)
-    response.raise_for_status()
-
-    soup = BeautifulSoup(response.text, "html.parser")
+def scrape_html(html: str) -> None:
+    soup = BeautifulSoup(html, "html.parser")
     found = 0
 
     for tag in soup.find_all("a", href=True):
@@ -65,6 +62,12 @@ def scrape(session: requests.Session) -> None:
             "The page may require authentication — see README for details.",
             file=sys.stderr,
         )
+
+
+def scrape(session: requests.Session) -> None:
+    response = session.get(URL, timeout=30)
+    response.raise_for_status()
+    scrape_html(response.text)
 
 
 def load_cookies_file(path: str) -> http.cookiejar.CookieJar:
@@ -90,7 +93,18 @@ def main() -> None:
         default=os.environ.get("OT_COOKIES"),
         help="Path to a Netscape cookies.txt file (or set OT_COOKIES env var).",
     )
+    parser.add_argument(
+        "--file",
+        metavar="FILE",
+        help="Parse links from a local HTML file instead of fetching the URL.",
+    )
     args = parser.parse_args()
+
+    if args.file:
+        with open(args.file, encoding="utf-8") as f:
+            html = f.read()
+        scrape_html(html)
+        return
 
     session = requests.Session()
     session.headers.update(
