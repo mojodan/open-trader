@@ -4,9 +4,10 @@ Scrapes https://protraining.opentrader.com/coaching/ for links whose anchor
 text begins with "Coaching/Q" and prints vimeo_download.py invocation lines.
 """
 
+import argparse
+import http.cookiejar
 import re
 import sys
-from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
@@ -66,9 +67,32 @@ def scrape(session: requests.Session) -> None:
         )
 
 
+def load_cookies_file(path: str) -> http.cookiejar.CookieJar:
+    """Load a Netscape-format cookies.txt file (exported by browser extensions)."""
+    jar = http.cookiejar.MozillaCookieJar(path)
+    try:
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except http.cookiejar.LoadError as exc:
+        print(f"Error loading cookies file '{path}': {exc}", file=sys.stderr)
+        sys.exit(1)
+    return jar
+
+
 def main() -> None:
+    import os
+
+    parser = argparse.ArgumentParser(
+        description="Scrape Coaching/Q webinar links and print vimeo_download commands."
+    )
+    parser.add_argument(
+        "--cookies",
+        metavar="FILE",
+        default=os.environ.get("OT_COOKIES"),
+        help="Path to a Netscape cookies.txt file (or set OT_COOKIES env var).",
+    )
+    args = parser.parse_args()
+
     session = requests.Session()
-    # Mimic a browser to avoid trivial bot blocks
     session.headers.update(
         {
             "User-Agent": (
@@ -80,29 +104,29 @@ def main() -> None:
         }
     )
 
-    # If credentials are supplied via environment variables, attempt login first.
-    import os
+    if args.cookies:
+        session.cookies = load_cookies_file(args.cookies)
+    else:
+        # Fall back to username/password login via environment variables.
+        username = os.environ.get("OT_USERNAME")
+        password = os.environ.get("OT_PASSWORD")
 
-    username = os.environ.get("OT_USERNAME")
-    password = os.environ.get("OT_PASSWORD")
-
-    if username and password:
-        # Typical WordPress / LearnDash login endpoint
-        login_url = "https://protraining.opentrader.com/wp-login.php"
-        payload = {
-            "log": username,
-            "pwd": password,
-            "wp-submit": "Log In",
-            "redirect_to": URL,
-            "testcookie": "1",
-        }
-        session.get(login_url, timeout=30)  # fetch login page to grab cookies
-        resp = session.post(login_url, data=payload, timeout=30)
-        if "logout" not in resp.text.lower():
-            print(
-                "Warning: login may have failed (no logout link detected).",
-                file=sys.stderr,
-            )
+        if username and password:
+            login_url = "https://protraining.opentrader.com/wp-login.php"
+            payload = {
+                "log": username,
+                "pwd": password,
+                "wp-submit": "Log In",
+                "redirect_to": URL,
+                "testcookie": "1",
+            }
+            session.get(login_url, timeout=30)  # grab initial cookies
+            resp = session.post(login_url, data=payload, timeout=30)
+            if "logout" not in resp.text.lower():
+                print(
+                    "Warning: login may have failed (no logout link detected).",
+                    file=sys.stderr,
+                )
 
     scrape(session)
 
